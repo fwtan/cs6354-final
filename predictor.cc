@@ -1,5 +1,5 @@
 // Author: Fuwen Tan;   Created: Oct 31 2017
-// Description: ppm predictor for cbp3.
+// Description: o-gehl predictor for cbp3.
 
 #include <stdio.h>
 #include <cassert>
@@ -8,284 +8,400 @@
 #include <cstddef>
 #include <cstdlib>
 #include <bitset>
+#include <math.h>
+#include <vector>
 
 using namespace std;
 #include "cbp3_def.h"
 #include "cbp3_framework.h"
 
-#define ASSERT(cond) if (!(cond)) {printf("assert line %d\n",__LINE__); exit(EXIT_FAILURE);}
+//Comment the line #define OGEHL to obtain unoptimized GEHL
+#define OGEHL
 
-// number of global tables (those indexed with global history)
-#define NHIST 4 
-// base 2 logarithm of number of entries in bimodal table
-#define LOGB 12 // 4096
-// base 2 logarithm of number of entry in each global table
-#define LOGG 10 // 1024
-// number of bits for each up-down saturating counters
-#define CBITS 3
-// number of bits for each "meta" counter
-#define MBITS 1
-// number of tag bits in each global table entry
-#define TBITS 8
-// maximum global history length used
-#define MAXHIST 81
+// 8 gtables
+#define NTABLE 8
 
-typedef uint32_t address_t;
-typedef bitset<MAXHIST> history_t;
+//T1: (1<< (LOGPRED-1))=1K entries
+//Else: (1<<LOGPRED)=2K entries
+#ifndef LOGPRED
+#define LOGPRED 11
+#endif
 
-// this is the cyclic shift register for folding 
-// a long global history into a smaller number of bits
+//both path information and global branch history information
+//unconditional control-flow instructions are inserted in the global history. 
+#define FULLPATH
 
-class folded_history 
+//T2-T7: 4-bit counters
+//T0,T1: 5-bit counters
+#ifndef MAXCOUNTER
+#define MAXCOUNTER 7
+#define MINCOUNTER -MAXCOUNTER-1
+#endif
+
+// Parameters for OGEHL
+#ifdef OGEHL
+#define MAXTHRESUPDATE 31
+// Special configuration for the CBP challenge: 
+// 5-bit counters used on tables T0 and T1
+// T1 features only 1K entries
+#define CBP
+//GLENGTH: L(M)
+#define GLENGTH 200
+// L1
+#define L1 3
+//PLENGTH: the maximum path history length
+#define PLENGTH 16
+// AC: 9-bit counter
+#define THRES 256
+// TC: 7-bit counter
+#define THRESFIT 64
+// Dynamic history length fitting
+#define DYNHISTFIT
+// NTABLE + 3 distinct history lengths
+#define EXTRAHIST 3
+// Dynamic update threshold  fitting
+#define DYNTHRESFIT
+
+//Parameters for GEHL
+#else
+// GLENGTH: L(M)
+#define GLENGTH 125
+// L1
+#define L1 3
+// No path history
+#define PLENGTH 0
+// Only NTABLE distinct history lengths
+#define EXTRAHIST 0
+#endif
+
+int LOGSIZE;
+long long ghist[(GLENGTH >> 6) + 1];
+long long phist;
+
+// INDEX is used to compute the indexes of the tables:
+// 1) NENTRY * LOGSIZE bits are regularly picked from the vector of bits constituted with the branch history, the PC and the path history.
+// 2) these NENTRY*LOGSIZE bits are reduced to LOGSIZE bits through NENTRY-1 exclusive OR
+
+#define NENTRY 3
+// NENTRY is the maximum number of entries on the exclusive-OR gates in the computation of the indexing functions
+static int T[NENTRY * LOGPRED + 1];
+int
+#define ADDWIDTH 8
+// the number of bits of the PC address considered for bit picking
+INDEX ( const long long Add, // PC address
+		const long long *histo, const long long phisto,
+		const int m, const int funct)
 {
-public:
-	unsigned comp;
-	int CLENGTH;
-	int OLENGTH;
-	int OUTPOINT;
+	long long inter, Hh, Res;
+	int x, i, shift, PT, MinAdd, FUNCT, plength;
 	
-	folded_history () {}
-
-	void init(int original_length, int compressed_length) 
+	// First build a NENTRY * LOGSIZE vector of bits from histo, phisto and Add (PC)
+	if (m < PLENGTH)	plength = m;
+	else				plength = PLENGTH;
+	MinAdd = NENTRY * LOGSIZE - m - plength;
+	if (MinAdd > 20)	MinAdd = 20;
+	
+	if (MinAdd >= 8)
 	{
-		comp = 0;
-		OLENGTH = original_length;
-		CLENGTH = compressed_length;
-		OUTPOINT = OLENGTH % CLENGTH;
-		ASSERT(OLENGTH < MAXHIST);
+		// Use all the bits from the phisto, hiso and at least 8 bits from Add
+		inter =	((histo[0] & ((1 << m) - 1)) << (MinAdd + plength)) +
+		((Add & ((1 << MinAdd) - 1)) << plength) +
+		((phisto & ((1 << plength) - 1)));
+	}
+	else
+    {
+		// Some bits must be rejected from a total of m+plength+ADDWIDTH
+		for (x = 0; x < NENTRY * LOGSIZE; x++)
+		{
+			T[x] = ((x * (ADDWIDTH + m + plength - 1)) / (NENTRY * LOGSIZE - 1));
+		}
+		T[NENTRY * LOGSIZE] = ADDWIDTH + m + plength;
+		inter = 0;
+		// Branch history
+		Hh = histo[0];
+		Hh >>= T[0];
+		inter = (Hh & 1);
+		PT = 1;
+		for (i = 1; T[i] < m; i++)
+		{
+			if ((T[i] & 0xffc0) == (T[i - 1] & 0xffc0))
+			{
+				shift = T[i] - T[i - 1];
+			}
+		  	else
+			{
+				Hh = histo[PT];
+				PT++;
+				shift = T[i] & 63;
+			}
+			inter = (inter << 1);
+			Hh = Hh >> shift;
+			inter ^= (Hh & 1);
+		}
+		// PC
+		Hh = Add;
+		for (; T[i] < m + ADDWIDTH; i++)
+		{
+			shift = T[i] - m;
+			inter = (inter << 1);
+			inter ^= ((Hh >> shift) & 1);
+		}
+		// Path history
+		Hh = phisto;
+		for (; T[i] < m + plength + ADDWIDTH; i++)
+		{
+			shift = T[i] - (m + ADDWIDTH);
+			inter = (inter << 1);
+			inter ^= ((Hh >> shift) & 1);
+		}
 	}
 	
-	void update(history_t h)
+	// inter: NENTRY*LOGSIZE -> LOGSIZE via NENTRY-entry XOR gates
+	FUNCT = funct;
+	Res = inter & ((1 << LOGSIZE) - 1);
+	for (i = 1; i < NENTRY; i++)
     {
-		ASSERT((comp>>CLENGTH)==0);
-		comp = (comp << 1) | h[0]; // update the last history
-		comp ^= h[OLENGTH] << OUTPOINT;
-		comp ^= (comp >> CLENGTH);
-		comp &= (1<<CLENGTH)-1;
-    }
-};
+		inter = inter >> LOGSIZE;
+		Res ^= ((inter & ((1 << LOGSIZE) - 1)) >> FUNCT) ^ 
+				((inter & ((1 << FUNCT) - 1)) << ((LOGSIZE - FUNCT)));
+		FUNCT = (FUNCT + 1) % LOGSIZE;
+	}
+	return ((int) Res);
+}
 
 class PREDICTOR
 {
+private:
+	int UsedHistLength[NTABLE], HistLength[NTABLE + EXTRAHIST];
+	int AC, TC, thresupdate, maxcounter, mincounter, Minitag; 
+	
+	// T1: 1K entries
+	// Else: 2K entries
+	char pred[NTABLE][1 << LOGPRED];
+	// Tables 0 and 1 are 5-bit counters 
+	// Other tables are 4-bit counters
+	// Total storage for counters on the 8 tables 10+5+8+8+8+8+8+8 = 63Kbits
+	#ifdef DYNHISTFIT
+	char MINITAG[(1 << (LOGPRED - 1))];
+	// 1K 1-bit tag associated with Table 7
+	// Total storage amount for the submitted predictor 63K + 1K = 64Kbits
+	#endif
+
+	void init()
+	{
+		int i, j;
+		double initset, glength, tt, Pow;
+
+
+		for (j = 0; j < (1 << LOGPRED); j++)
+			for (i = 0; i < NTABLE; i++)
+				pred[i][j] = 0;
+		#ifdef OGEHL
+		for (j = 0; j < (1 << (LOGPRED-1)); j++)	
+			MINITAG[j] = 0;
+		#endif
+		TC=0; AC=0;
+		thresupdate=NTABLE;
+		
+		// Initialize histories ghist and phist
+		for (i = 0; i < (GLENGTH >> 6) + 1; i++)
+			ghist[i] = 0;
+		phist = 0;
+
+		// History lengths
+		glength = (double) (GLENGTH);
+		initset = (double) L1;
+		tt = glength / initset;
+		Pow = pow (tt, ((double) 1) / (double) (NTABLE - 2 + EXTRAHIST));
+		HistLength[0] = 0;
+		HistLength[1] = L1;
+		for (i = 2; i < NTABLE + EXTRAHIST; i++)
+			HistLength[i] = (int) ((initset * pow (Pow, (double) (i - 1))) + 0.5);
+
+		// Initialize the history lengths used for each of the predictor tables
+		for (i = 0; i < NTABLE; i++)
+			UsedHistLength[i] = HistLength[i];
+	}
+
 public:
-	// bimodal table entry
-	class bentry 
+	
+	PREDICTOR (void) { init(); }
+	
+	bool get_prediction(const cbp3_uop_dynamic_t* uop) const
 	{
-	public:
-		int8_t ctr;  // saturating counter
-		int8_t meta; // meta-predictor
-		bentry() 
+		bool prediction = false;
+		long long Add;
+		int Sum, i;
+		int indexg[NTABLE];
+		if (uop->type & IS_BR_CONDITIONAL)
 		{
-			ctr = (1 << (CBITS-1));
-			for (int i=0; i<NHIST; i++) 
+			Sum = NTABLE / 2;
+			LOGSIZE = LOGPRED;
+			Add = (long long) uop->pc;
+			for (i = 0; i < (NTABLE); i++)
 			{
-				meta = (1 << (MBITS-1));
+			#ifdef CBP
+				// T1: 1K entries
+				if (i == 1)	LOGSIZE--;
+			#endif
+				// last factor (i & 3) + 1 is put in order to avoid similar combination 
+				// of bits in the index for adjacent tables
+				indexg[i] =	INDEX (Add, ghist, phist, UsedHistLength[i], (i & 3) + 1);
+			#ifdef CBP
+				if (i == 1)	LOGSIZE++;
+			#endif
+				Sum += pred[i][indexg[i]];
 			}
-      	}
-    };
-
-    // global table entry
-	class gentry 
-	{
-	public:
-		int8_t ctr;
-		uint16_t tag;
-		bool ubit;
-		gentry() 
-		{
-			ctr = (1 << (CBITS-1));
-			tag = 0;
-			ubit = false;
-		}
-    };
-
-    // predictor storage data
-    history_t ghist; // global history register
-    folded_history ch_i[NHIST]; // for prediction
-    folded_history ch_t[2][NHIST]; // for tag
-    bentry* btable; // bimodal table
-    gentry* gtable[NHIST]; // history table
-
-
-	PREDICTOR()
-	{
-		ghist = 0;
-		ch_i[0].init(80, LOGG); // 80-bit global history
-		ch_i[1].init(40, LOGG); // 40-bit global history
-		ch_i[2].init(20, LOGG); // 20-bit global history
-		ch_i[3].init(10, LOGG); // 10-bit global history
-		for (int i=0; i<NHIST; i++) 
-		{
-			// tag
-			ch_t[0][i].init(ch_i[i].OLENGTH, TBITS);
-			ch_t[1][i].init(ch_i[i].OLENGTH, TBITS-1);
-		}
-		btable = new bentry [1<<LOGB];
-		for (int i=0; i<NHIST; i++) 
-		{
-			gtable[i] = new gentry [1<<LOGG];
-		}
-	}
-
-
-    // index function for the bimodal table
-    int bindex(address_t pc) 
-    {
-		return(pc & ((1<<LOGB)-1));
-    }
-
-    // index function for the global tables
-	int gindex(address_t pc, int bank)
-	{
-		int index = pc ^ (pc>>LOGG) ^ ch_i[bank].comp;
-		return(index & ((1<<LOGG)-1));
-	}
-
-    // index function for the tags
-	uint16_t gtag(address_t pc, int bank)
-	{
-		int tag = pc ^ ch_t[0][bank].comp ^ (ch_t[1][bank].comp << 1);
-		return(tag & ((1<<TBITS)-1));
-	}
-
-    // most significant bit of up-down saturating counter
-	bool ctrpred(int8_t ctr, int nbits)
-	{
-		return((ctr >> (nbits-1)) != 0);
-    }
-
-    // up-down saturating counter
-	void ctrupdate(int8_t & ctr, bool taken, int nbits)
-	{
-		if (taken) 
-		{
-			if (ctr < ((1<<nbits)-1)) 
-			{
-				ctr++;
-			}
-		} 
-		else 
-		{
-			if (ctr > 0) 
-			{
-				ctr--;
-			}
-		}
-    }
-
-    // prediction given by longest matching global history
-    bool read_prediction(address_t pc, int & bank)
-    {
-		int index;
-		bank = NHIST;
-		for (int i=0; i < NHIST; i++) 
-		{
-			index = gindex(pc,i);
-			if (gtable[i][index].tag == gtag(pc,i)) 
-			{
-				bank = i;
-				break;
-			}
-		}
-		if (bank < NHIST) 
-		{
-			return ctrpred(gtable[bank][index].ctr,CBITS);
-		} 
-		else 
-		{
-			return ctrpred(btable[bindex(pc)].ctr,CBITS);
-		}
-	}
-
-    // PREDICTION
-	bool get_prediction(const cbp3_uop_dynamic_t* uop)
-	{
-		int bank;
-		bool prediction = true;
-		if (uop->type & IS_BR_CONDITIONAL) 
-		{
-			address_t pc = uop->pc;
-			prediction = read_prediction(pc, bank);
+			prediction = (Sum >= 0);
 		}
 		return prediction;
-    }
-
-
-    // PREDICTOR UPDATE
+	}
+	
 	void update_predictor(const cbp3_uop_dynamic_t* uop, bool taken)
 	{
-		bool pred_taken, btaken;
-		int bank, bi, gi[NHIST];
-		if (uop->type & IS_BR_CONDITIONAL) 
+		bool prediction = false;
+		long long Add;
+		int Sum;
+		int indexg[NTABLE], i;
+		
+		// Recompute the prediction
+		Add = (long long) uop->pc;
+		if (uop->type & IS_BR_CONDITIONAL)
 		{
-			address_t pc = uop->pc; bi = bindex(pc);
-			// in a real processor, it is not necessary to re-read the predictor at update
-			// it suffices to propagate the prediction along with the branch instruction
-			pred_taken = read_prediction(pc, bank);
-			btaken = ctrpred(btable[bi].ctr,CBITS);
-			// steal new entries only if prediction was wrong
-			if ((pred_taken != taken) && (bank > 0)) 
+			Sum = NTABLE / 2;
+			LOGSIZE = LOGPRED;
+			for (i = 0; i < (NTABLE); i++)
 			{
-				bool choose_random = true;
-				for (int i=0; i<bank; i++) 
+			#ifdef CBP
+				if (i == 1)	LOGSIZE--;
+			#endif
+				indexg[i] = INDEX (Add, ghist, phist, UsedHistLength[i], (i & 3) + 1);
+			#ifdef CBP
+	    		if (i == 1)	LOGSIZE++;
+			#endif
+				Sum += pred[i][indexg[i]];
+			}
+			prediction = (Sum >= 0);
+
+		#ifdef DYNTHRESFIT
+			// Dynamic threshold fitting
+			if (prediction != taken)
+			{
+				TC += 1;
+				if (TC > THRESFIT - 1)
 				{
-					gi[i] = gindex(pc,i);
-					choose_random = choose_random && (gtable[i][gi[i]].ubit);
-				}
-				bool init_taken = (ctrpred(btable[bi].meta,MBITS))? taken : btaken;
-				if (choose_random) 
-				{
-					int i = (unsigned) random() % bank;
-					gtable[i][gi[i]].tag = gtag(pc,i);
-					gtable[i][gi[i]].ctr = (1<<(CBITS-1)) - ((init_taken)? 0:1);
-					gtable[i][gi[i]].ubit = false;
-				} 
-				else 
-				{
-					for (int i=0; i<bank; i++) 
+					TC = THRESFIT - 1;
+					if (thresupdate < MAXTHRESUPDATE)
 					{
-						if (! gtable[i][gi[i]].ubit) 
+						TC = 0;
+						thresupdate++;
+					}
+				}
+			}
+			else if ((Sum < thresupdate) && (Sum >= -thresupdate))
+			{
+				TC--;
+				if (TC < -THRESFIT)
+				{
+					TC = -THRESFIT;
+					if (thresupdate > 0)
+					{
+						thresupdate--; TC=0;
+					}
+				}
+			}        
+			// if the number of updates on correct predictions using the high threshold is higher than twice the number of updates on mispredictions, then use the low threshold
+		#else
+			thresupdate = NTABLE;
+		#endif
+			
+			if((prediction != taken) || ((Sum < thresupdate) && (Sum >= -thresupdate)))
+			{
+				// update the counters
+				for (i = 0; i < NTABLE; i++)
+				{
+					if (taken)
+					{
+					#ifdef CBP
+						//T0 and T1 implements 5-bit counters
+						if (i <= 1)
+							maxcounter = 2 * MAXCOUNTER + 1;
+						else
+					#endif
+							maxcounter = MAXCOUNTER;
+						if (pred[i][indexg[i]] < maxcounter)
+							pred[i][indexg[i]]++;
+					}
+					else
+					{
+					#ifdef CBP
+					//T0 and T1 implements 5-bit counters
+						if (i <= 1)
+							mincounter = 2 * (MINCOUNTER);
+						else
+					#endif
+							mincounter = MINCOUNTER;
+						if (pred[i][indexg[i]] > mincounter)
+							pred[i][indexg[i]]--;
+					}
+				}
+				
+			#ifdef DYNHISTFIT
+				// dynamic history length fitting
+				// 1 tag bit is associated with each even entry in table T7
+				if ((indexg[NTABLE - 1] & 1) == 0)
+				{
+					if ((prediction != taken))
+					{
+						Minitag = MINITAG[indexg[NTABLE - 1] >> 1];
+						if (Minitag != ((int) (Add & 1)))
 						{
-							gtable[i][gi[i]].tag = gtag(pc,i);
-							gtable[i][gi[i]].ctr = (1<<(CBITS-1)) - ((init_taken)? 0:1);
-							gtable[i][gi[i]].ubit = false;
+							AC -= 4;
+							if (AC < -THRES)
+							{
+								//when AC becomes saturated negative, high level of aliasing is considered, then "short" history lengthes are used
+								AC = -THRES;
+								UsedHistLength[6] = HistLength[6];
+								UsedHistLength[4] = HistLength[4];
+								UsedHistLength[2] = HistLength[2];
+							}
+						}
+						else
+						{
+							AC++;
+							if (AC > THRES - 1)
+			  				{
+								//when AC becomes  saturated positive, low level of aliasing is considered, then "long" history lengthes are used
+								AC = THRES - 1;
+			    				UsedHistLength[6] = HistLength[NTABLE + 2];
+								UsedHistLength[4] = HistLength[NTABLE + 1];
+								UsedHistLength[2] = HistLength[NTABLE];
+							}
 						}
 					}
-	    		}
-	  		}
-
-			// update the counter that provided the prediction, and only it
-			if (bank < NHIST) 
-			{
-				gi[bank] = gindex(pc,bank);
-				ASSERT(pred_taken == ctrpred(gtable[bank][gi[bank]].ctr,CBITS));
-				ctrupdate(gtable[bank][gi[bank]].ctr,taken,CBITS);
-			} 
-			else 
-			{
-				ctrupdate(btable[bi].ctr,taken,CBITS);
-			}
-
-			// update the meta counter
-			if (pred_taken != btaken) 
-			{
-				ASSERT(bank < NHIST);
-				ctrupdate(btable[bi].meta,(pred_taken==taken),MBITS);
-				gtable[bank][gi[bank]].ubit = (pred_taken == taken);
-			}
-
-			// update global history and cyclic shift registers
-			ghist = (ghist << 1) | (history_t) taken;
-			for (int i=0; i<NHIST; i++)
-			{
-				ch_i[i].update(ghist);
-				ch_t[0][i].update(ghist);
-				ch_t[1][i].update(ghist);
+					MINITAG[indexg[NTABLE - 1] >> 1] = (char) (Add & 1);
+				}
+			#endif
 			}
 		}
-    }
-};
 
+		// update the branch history and the path history
+		#ifdef FULLPATH
+			phist = (phist << 1) + (Add & 1);
+		#endif
+		#ifndef FULLPATH
+			if (uop->type & IS_BR_CONDITIONAL)
+		#endif
+			{
+				for (i = (GLENGTH >> 6); i > 0; i--)
+					ghist[i] = (ghist[i] << 1) + (ghist[i - 1] < 0);
+				ghist[0] = ghist[0] << 1;
+
+				if (((uop->type & IS_BR_CONDITIONAL) && (taken)) | (!(uop->type & IS_BR_CONDITIONAL)))
+					ghist[0]++;
+			}
+	}
+}
 
 PREDICTOR* g_predictor = 0;
 
