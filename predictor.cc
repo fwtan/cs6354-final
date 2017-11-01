@@ -324,7 +324,7 @@ void PredictorRunACycle()
             // misprediction penalty
             assert(report_pred(fe_ptr, false, gpred));
 
-            g_predictor.update_predictor(uop, uop->br_taken)
+            g_predictor.update_predictor(uop, uop->br_taken);
         }
     }
 }
