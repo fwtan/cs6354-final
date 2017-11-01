@@ -314,7 +314,7 @@ void PredictorRunACycle()
         const cbp3_uop_dynamic_t *uop = &fetch_entry(fe_ptr)->uop;
         if (uop->type & IS_BR_CONDITIONAL)
         {
-            bool gpred = g_predictor.get_prediction(uop);
+            bool gpred = g_predictor->get_prediction(uop);
             // report prediction:
             // you need to provide direction predictions for conditional branches,
             // targets of conditional branches are available at fetch stage.
@@ -324,7 +324,7 @@ void PredictorRunACycle()
             // misprediction penalty
             assert(report_pred(fe_ptr, false, gpred));
 
-            g_predictor.update_predictor(uop, uop->br_taken);
+            g_predictor->update_predictor(uop, uop->br_taken);
         }
     }
 }
