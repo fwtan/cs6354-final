@@ -171,7 +171,7 @@ INDEX ( const long long Add, // PC address
 
 class PREDICTOR
 {
-private:
+public:
 	int UsedHistLength[NTABLE], HistLength[NTABLE + EXTRAHIST];
 	int AC, TC, thresupdate, maxcounter, mincounter, Minitag; 
 	
@@ -186,7 +186,6 @@ private:
 	// 1K 1-bit tag associated with Table 7
 	// Total storage amount for the submitted predictor 63K + 1K = 64Kbits
 	#endif
-
 	void init()
 	{
 		int i, j;
@@ -222,10 +221,8 @@ private:
 		for (i = 0; i < NTABLE; i++)
 			UsedHistLength[i] = HistLength[i];
 	}
-
-public:
 	
-	PREDICTOR (void) { init(); }
+	PREDICTOR() { init(); }
 	
 	bool get_prediction(const cbp3_uop_dynamic_t* uop) const
 	{
