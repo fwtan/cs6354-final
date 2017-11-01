@@ -287,7 +287,7 @@ public:
 };
 
 
-PREDICTOR* g_predictor = 0
+PREDICTOR* g_predictor = 0;
 
 void PredictorInit() 
 {
