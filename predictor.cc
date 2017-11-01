@@ -167,7 +167,7 @@ INDEX ( const long long Add, // PC address
 		FUNCT = (FUNCT + 1) % LOGSIZE;
 	}
 	return ((int) Res);
-}
+};
 
 class PREDICTOR
 {
@@ -221,7 +221,7 @@ public:
 		for (i = 0; i < NTABLE; i++)
 			UsedHistLength[i] = HistLength[i];
 	}
-	
+
 	PREDICTOR() { init(); }
 	
 	bool get_prediction(const cbp3_uop_dynamic_t* uop) const
@@ -398,7 +398,7 @@ public:
 					ghist[0]++;
 			}
 	}
-}
+};
 
 PREDICTOR* g_predictor = 0;
 
