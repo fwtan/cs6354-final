@@ -1,5 +1,5 @@
-// Author: Fuwen Tan;   Created: Oct 31 2017
 // Description: ppm predictor for cbp3.
+// Modified from the implementation: https://www.jilp.org/cbp/Pierre.tar.bz2.uue
 
 #include <stdio.h>
 #include <cassert>
@@ -48,7 +48,7 @@ public:
 
 	void init(int original_length, int compressed_length) 
 	{
-		comp = 0;
+		comp = 0;	// folded history
 		OLENGTH = original_length;
 		CLENGTH = compressed_length;
 		OUTPOINT = OLENGTH % CLENGTH;
@@ -58,8 +58,8 @@ public:
 	void update(history_t h)
     {
 		ASSERT((comp>>CLENGTH)==0);
-		comp = (comp << 1) | h[0]; // update the last history
-		comp ^= h[OLENGTH] << OUTPOINT;
+		comp = (comp << 1) | h[0]; 		// update the last history
+		comp ^= h[OLENGTH] << OUTPOINT;	
 		comp ^= (comp >> CLENGTH);
 		comp &= (1<<CLENGTH)-1;
     }
@@ -101,8 +101,8 @@ public:
 
     // predictor storage data
     history_t ghist; // global history register
-    folded_history ch_i[NHIST]; // for prediction
-    folded_history ch_t[2][NHIST]; // for tag
+    folded_history ch_i[NHIST];    // CSRs for history table
+    folded_history ch_t[2][NHIST]; // CSRs for tag
     bentry* btable; // bimodal table
     gentry* gtable[NHIST]; // history table
 
@@ -110,6 +110,7 @@ public:
 	PREDICTOR()
 	{
 		ghist = 0;
+		// Order from longest to shortest
 		ch_i[0].init(80, LOGG); // 80-bit global history
 		ch_i[1].init(40, LOGG); // 40-bit global history
 		ch_i[2].init(20, LOGG); // 20-bit global history
@@ -137,6 +138,7 @@ public:
     // index function for the global tables
 	int gindex(address_t pc, int bank)
 	{
+		// XOR hashing
 		int index = pc ^ (pc>>LOGG) ^ ch_i[bank].comp;
 		return(index & ((1<<LOGG)-1));
 	}
@@ -144,6 +146,7 @@ public:
     // index function for the tags
 	uint16_t gtag(address_t pc, int bank)
 	{
+		// Weird label to reduce alias
 		int tag = pc ^ ch_t[0][bank].comp ^ (ch_t[1][bank].comp << 1);
 		return(tag & ((1<<TBITS)-1));
 	}
@@ -223,25 +226,31 @@ public:
 			// it suffices to propagate the prediction along with the branch instruction
 			pred_taken = read_prediction(pc, bank);
 			btaken = ctrpred(btable[bi].ctr,CBITS);
-			// steal new entries only if prediction was wrong
+			// steal new entries only if prediction was wrong 
+			// and the matching bank is not the longest one
 			if ((pred_taken != taken) && (bank > 0)) 
 			{
 				bool choose_random = true;
+				// If there is any entry of which the u bit is reset
 				for (int i=0; i<bank; i++) 
 				{
 					gi[i] = gindex(pc,i);
 					choose_random = choose_random && (gtable[i][gi[i]].ubit);
 				}
+				// if m bit is reset, use btaken
 				bool init_taken = (ctrpred(btable[bi].meta,MBITS))? taken : btaken;
 				if (choose_random) 
 				{
 					int i = (unsigned) random() % bank;
+					// steal tag
 					gtable[i][gi[i]].tag = gtag(pc,i);
+					// initialize counter
 					gtable[i][gi[i]].ctr = (1<<(CBITS-1)) - ((init_taken)? 0:1);
 					gtable[i][gi[i]].ubit = false;
 				} 
 				else 
 				{
+					// steal tags
 					for (int i=0; i<bank; i++) 
 					{
 						if (! gtable[i][gi[i]].ubit) 
@@ -254,7 +263,7 @@ public:
 	    		}
 	  		}
 
-			// update the counter that provided the prediction, and only it
+			// update the counter
 			if (bank < NHIST) 
 			{
 				gi[bank] = gindex(pc,bank);
@@ -266,7 +275,7 @@ public:
 				ctrupdate(btable[bi].ctr,taken,CBITS);
 			}
 
-			// update the meta counter
+			// update the meta counter and the useful bit
 			if (pred_taken != btaken) 
 			{
 				ASSERT(bank < NHIST);
@@ -274,7 +283,7 @@ public:
 				gtable[bank][gi[bank]].ubit = (pred_taken == taken);
 			}
 
-			// update global history and cyclic shift registers
+			// update global history and circular shift registers
 			ghist = (ghist << 1) | (history_t) taken;
 			for (int i=0; i<NHIST; i++)
 			{

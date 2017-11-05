@@ -1,5 +1,5 @@
-// Author: Fuwen Tan;   Created: Oct 31 2017
 // Description: o-gehl predictor for cbp3.
+// Modified from the implmentation: https://www.jilp.org/cbp/Andre.tar.bz2.uue
 
 #include <stdio.h>
 #include <cassert>
