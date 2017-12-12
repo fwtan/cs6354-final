@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <bitset>
+#include <math.h>
 
 using namespace std;
 #include "cbp3_def.h"
