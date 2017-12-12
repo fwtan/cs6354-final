@@ -15,24 +15,24 @@ using namespace std;
 #include "cbp3_def.h"
 #include "cbp3_framework.h"
 
-//Comment the line #define OGEHL to obtain unoptimized GEHL
+// comment the line #define OGEHL to obtain unoptimized GEHL
 #define OGEHL
 
 // 8 gtables
 #define NTABLE 8
 
-//T1: (1<< (LOGPRED-1))=1K entries
-//Else: (1<<LOGPRED)=2K entries
+// T1: (1 << (LOGPRED-1)) = 1K entries
+// else: (1 << LOGPRED) = 2K entries
 #ifndef LOGPRED
 #define LOGPRED 11
 #endif
 
-//both path information and global branch history information
-//unconditional control-flow instructions are inserted in the global history. 
+// using both branch history and path history
+// unconditional control-flow instructions are inserted in the global history. 
 #define FULLPATH
 
-//T2-T7: 4-bit counters
-//T0,T1: 5-bit counters
+// T2-T7: 4-bit counters
+// T0,T1: 5-bit counters
 #ifndef MAXCOUNTER
 #define MAXCOUNTER 7
 #define MINCOUNTER -MAXCOUNTER-1
@@ -45,11 +45,11 @@ using namespace std;
 // 5-bit counters used on tables T0 and T1
 // T1 features only 1K entries
 #define CBP
-//GLENGTH: L(M)
+// GLENGTH: L(M)
 #define GLENGTH 200
 // L1
 #define L1 3
-//PLENGTH: the maximum path history length
+// PLENGTH: the maximum path history length
 #define PLENGTH 16
 // AC: 9-bit counter
 #define THRES 256
@@ -59,7 +59,7 @@ using namespace std;
 #define DYNHISTFIT
 // NTABLE + 3 distinct history lengths
 #define EXTRAHIST 3
-// Dynamic update threshold  fitting
+// Dynamic update threshold fitting
 #define DYNTHRESFIT
 
 //Parameters for GEHL
@@ -80,7 +80,7 @@ long long phist;
 
 // INDEX is used to compute the indexes of the tables:
 // 1) NENTRY * LOGSIZE bits are regularly picked from the vector of bits constituted with the branch history, the PC and the path history.
-// 2) these NENTRY*LOGSIZE bits are reduced to LOGSIZE bits through NENTRY-1 exclusive OR
+// 2) these NENTRY * LOGSIZE bits are reduced to LOGSIZE bits through NENTRY-1 exclusive OR
 
 #define NENTRY 3
 // NENTRY is the maximum number of entries on the exclusive-OR gates in the computation of the indexing functions
@@ -89,7 +89,7 @@ int
 #define ADDWIDTH 8
 // the number of bits of the PC address considered for bit picking
 INDEX ( const long long Add, // PC address
-		const long long *histo, const long long phisto,
+		const long long * histo, const long long phisto,
 		const int m, const int funct)
 {
 	long long inter, Hh, Res;
@@ -224,7 +224,7 @@ public:
 
 	PREDICTOR() { init(); }
 	
-	bool get_prediction(const cbp3_uop_dynamic_t* uop) const
+	bool predict(const cbp3_uop_dynamic_t* uop) const
 	{
 		bool prediction = false;
 		long long Add;
@@ -399,6 +399,11 @@ public:
 			}
 	}
 };
+
+
+////////////////////////////////////////////////////////////////
+// Implementation of the interfaces for the simulator
+////////////////////////////////////////////////////////////////
 
 PREDICTOR* g_predictor = 0;
 
