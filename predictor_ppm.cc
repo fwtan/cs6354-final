@@ -15,11 +15,11 @@ using namespace std;
 
 #define ASSERT(cond) if (!(cond)) {printf("assert line %d\n",__LINE__); exit(EXIT_FAILURE);}
 
-// number of global tables (those indexed with global history)
+// number of global prediction tables
 #define NHIST 4 
 // base 2 logarithm of number of entries in bimodal table
 #define LOGB 12 // 4096
-// base 2 logarithm of number of entry in each global table
+// base 2 logarithm of number of entry in each global prediction table
 #define LOGG 10 // 1024
 // number of bits for each up-down saturating counters
 #define CBITS 3
@@ -33,7 +33,7 @@ using namespace std;
 typedef uint32_t address_t;
 typedef bitset<MAXHIST> history_t;
 
-// this is the cyclic shift register for folding 
+// Cyclic Shift Register (CSR) for folding 
 // a long global history into a smaller number of bits
 
 class folded_history 
@@ -46,6 +46,7 @@ public:
 	
 	folded_history () {}
 
+	// compressed_length := 10 for PPM
 	void init(int original_length, int compressed_length) 
 	{
 		comp = 0;	// folded history
@@ -101,13 +102,23 @@ public:
 
     // predictor storage data
     history_t ghist; // global history register
-    folded_history ch_i[NHIST];    // CSRs for history table
-    folded_history ch_t[2][NHIST]; // CSRs for tag
+    folded_history ch_i[NHIST];    // CSRs for global table hashing
+    folded_history ch_t[2][NHIST]; // CSRs for tag computation
     bentry* btable; // bimodal table
-    gentry* gtable[NHIST]; // history table
+    gentry* gtable[NHIST]; // history tables
 
 
-	PREDICTOR()
+	PREDICTOR():btable(0)
+	{
+		init();
+	}
+
+	~PREDICTOR()
+	{
+		clear();
+	}
+
+	void init()
 	{
 		ghist = 0;
 		// Order from longest to shortest
@@ -128,6 +139,24 @@ public:
 		}
 	}
 
+	void clear()
+	{
+		if (btable)
+		{
+			delete btable;
+			btable = 0;
+		}
+
+		for (int i=0; i<NHIST; i++) 
+		{
+			if (gtable[i])
+			{
+				delete gtable[i];
+				gtable[i] = 0;
+			}
+		}
+	}
+
 
     // index function for the bimodal table
     int bindex(address_t pc) 
@@ -135,7 +164,7 @@ public:
 		return(pc & ((1<<LOGB)-1));
     }
 
-    // index function for the global tables
+    // index function for the history tables
 	int gindex(address_t pc, int bank)
 	{
 		// XOR hashing
@@ -143,7 +172,7 @@ public:
 		return(index & ((1<<LOGG)-1));
 	}
 
-    // index function for the tags
+    // tag computation
 	uint16_t gtag(address_t pc, int bank)
 	{
 		// Weird label to reduce alias
@@ -201,7 +230,7 @@ public:
 	}
 
     // PREDICTION
-	bool get_prediction(const cbp3_uop_dynamic_t* uop)
+	bool predict(const cbp3_uop_dynamic_t* uop)
 	{
 		int bank;
 		bool prediction = true;
@@ -296,6 +325,10 @@ public:
 };
 
 
+
+////////////////////////////////////////////////////////////////
+// Implementation of the interfaces for the simulator
+////////////////////////////////////////////////////////////////
 PREDICTOR* g_predictor = 0;
 
 void PredictorInit() 
@@ -316,14 +349,15 @@ void PredictorRunACycle()
 {
     // get info about what uops are processed at each pipeline stage
     const cbp3_cycle_activity_t *cycle_info = get_cycle_info();
-    // make prediction at fetch stage
+	// make prediction at fetch stage
+	// also update the history at fetch stage 
     for (int i = 0; i < cycle_info->num_fetch; i++) 
     {
         uint32_t fe_ptr = cycle_info->fetch_q[i];
         const cbp3_uop_dynamic_t *uop = &fetch_entry(fe_ptr)->uop;
         if (uop->type & IS_BR_CONDITIONAL)
         {
-            bool gpred = g_predictor->get_prediction(uop);
+            bool gpred = g_predictor->predict(uop);
             // report prediction:
             // you need to provide direction predictions for conditional branches,
             // targets of conditional branches are available at fetch stage.
