@@ -517,13 +517,12 @@ public:
         }
 
         // update global history and cyclic shift registers
-        //use also history on unconditional branches as for OGEHL predictors.    
-        
+        // use also history on unconditional branches as for OGEHL predictors.    
         ghist = (ghist << 1);
-        if ((!br->is_conditional) | (taken))
+        if ((!(uop->type & IS_BR_CONDITIONAL)) | (taken))
             ghist |= (history_t) 1;
 
-        phist = (phist << 1) + (br->instruction_addr & 1);
+        phist = (phist << 1) + (uop->pc & 1);
         phist = (phist & ((1 << 16) - 1));
         for (int i = 0; i < NHIST; i++)
         {
