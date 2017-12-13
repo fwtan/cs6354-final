@@ -378,31 +378,31 @@ public:
             (1 << (logg[1])) + (1 << (logg[STEP1])) + (1 << (logg[STEP2])) +
             (1 << (logg[STEP3]));
         #endif
-        fprintf(stdout, "history lengths:");
-        for (int i = 1; i <= NHIST; i++)
-        {
-            fprintf(stdout, "%d ", m[i]);
-        }
-        fprintf (stdout, "\n");
+        // fprintf(stdout, "history lengths:");
+        // for (int i = 1; i <= NHIST; i++)
+        // {
+        //     fprintf(stdout, "%d ", m[i]);
+        // }
+        // fprintf (stdout, "\n");
         STORAGESIZE += (1 << LOGB) + (1 << (LOGB - HYSTSHIFT));
-        fprintf (stdout, "TAGE %d bytes, ", STORAGESIZE / 8);
+        // fprintf (stdout, "TAGE %d bytes, ", STORAGESIZE / 8);
         
         #ifdef LOOPPREDICTOR
         STORAGESIZE += (1 << LOGL) * (3 * WIDTHNBITERLOOP + LOOPTAG + 3 + 3 + 1);
-        fprintf (stdout, "LOOPPRED %d bytes, ",
+        // fprintf (stdout, "LOOPPRED %d bytes, ",
             ((1 << LOGL) * (3 * WIDTHNBITERLOOP + LOOPTAG + 3 + 3 + 1)) / 8);
         #endif
 
         #ifdef STATCOR
         STORAGESIZE += CSTAT * (1 << (LOGStatCor));
-        fprintf (stdout, "Stat Cor %d bytes, ", CSTAT * (1 << (LOGStatCor)) / 8);
+        // fprintf (stdout, "Stat Cor %d bytes, ", CSTAT * (1 << (LOGStatCor)) / 8);
         #endif
         #ifdef IUM
         STORAGESIZE += (1 << LOGSPEC) * 20;
-        fprintf (stdout, "IUM  %d bytes, ", ((1 << LOGSPEC) * 20) / 8);
+        // fprintf (stdout, "IUM  %d bytes, ", ((1 << LOGSPEC) * 20) / 8);
         // Entry width on the speculative table is 20 bits (19 bits to identify the table entry that gives the prediction and 1 prediction bit
         #endif
-        fprintf (stdout, "TOTAL STORAGESIZE= %d bytes\n", STORAGESIZE / 8);
+        // fprintf (stdout, "TOTAL STORAGESIZE= %d bytes\n", STORAGESIZE / 8);
         #endif
     }
     
