@@ -389,8 +389,7 @@ public:
         
         #ifdef LOOPPREDICTOR
         STORAGESIZE += (1 << LOGL) * (3 * WIDTHNBITERLOOP + LOOPTAG + 3 + 3 + 1);
-        // fprintf (stdout, "LOOPPRED %d bytes, ",
-            ((1 << LOGL) * (3 * WIDTHNBITERLOOP + LOOPTAG + 3 + 3 + 1)) / 8);
+        // fprintf (stdout, "LOOPPRED %d bytes, ", ((1 << LOGL) * (3 * WIDTHNBITERLOOP + LOOPTAG + 3 + 3 + 1)) / 8);
         #endif
 
         #ifdef STATCOR
