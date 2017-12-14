@@ -16,6 +16,25 @@ using namespace std;
 
 #define ASSERT(cond) if (!(cond)) {printf("assert line %d\n",__LINE__); exit(EXIT_FAILURE);}
 
+#define FIVECOMPONENT
+#ifdef FIVECOMPONENT
+// a 64 Kbits predictor with 4 tagged tables
+#define LOGB 13
+#define NHIST 4
+#define TBITS 9
+#define LOGG (LOGB-3)
+#endif
+
+//#define FOURTEENCOMPONENT
+#ifdef FOURTEENCOMPONENT
+// a 64,5 Kbits predictor with 13 tagged tables
+#define LOGB 13
+#define NHIST 13
+#define TBITS 15
+#define LOGG (LOGB-5)
+#endif
+
+
 // the predictor features NHIST tagged components + a base bimodal component
 // a tagged entry in tagged table Ti (0<= i< NHIST)  features a TBITS-(i+ (NHIST & 1))/2 tag, a CBITS prediction counter and a 2-bit useful counter. 
 // Tagged components feature 2**LOGG entries
