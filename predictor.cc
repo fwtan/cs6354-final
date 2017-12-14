@@ -50,15 +50,25 @@ using namespace std;
 // 7 Kbits   for T5 and T6
 
 // number of bits for each up-down saturating counters
+#ifndef CBITS
 #define CBITS 3
+#endif
 // number of global prediction tables
+#ifndef NHIST
 #define NHIST 7
+#endif
 // base 2 logarithm of number of entries in bimodal table
+#ifndef LOGB
 #define LOGB 13
+#endif
 // base 2 logarithm of number of entries on each tagged component
+#ifndef LOGG
 #define LOGG (LOGB-4)
+#endif
 // total width of an entry in the tagged table with the longest history length
+#ifndef TBITS
 #define TBITS 12
+#endif
 //AS: we use Geometric history length
 //AS: maximum global history length used and minimum history length
 #define MAXHIST 131
